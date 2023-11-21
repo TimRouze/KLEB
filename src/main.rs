@@ -2,13 +2,15 @@
 
 mod bloom;
 use clap::Parser;
-use seq_io::fasta::{Reader, Record};
+use seq_io::fasta::{Reader};
+use std::error::Error;
 use std::fs::{metadata, File};
 use std::path::Path;
 use std::io::{self, BufRead, stdin};
 use std::cmp::min;
-use std::ptr::null;
-use bloom::BloomFilter;
+use std::collections::HashMap;//bebou
+use::csv::Writer;
+use bloom::{BloomFilter, AggregatingBloomFilter};
 
 
 const K: u8 = 31;
@@ -43,9 +45,9 @@ fn main() {
     };
     */
     //let mut nb_files : u32 = 0;
-    let mut counter = 0;
     let size =  args.memory * 1_000_000 / 2;
-    let mut bloom_filter_array : [BloomFilter; 2] = [BloomFilter::new_with_seed(size, args.hashes, args.seed), BloomFilter::new_with_seed(size, args.hashes, args.seed)];                
+    let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);                
+    let mut aBF: AggregatingBloomFilter = AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed);//bebou
     if let Ok(lines) = read_lines(input_fof){
         for line in lines{
             if let Ok(filename) = line{
@@ -63,23 +65,43 @@ fn main() {
                             /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
                             let mut s=String::new();
                             stdin().read_line(&mut s).expect("Did not enter a correct string"); */
-                            bloom_filter_array[counter].insert_if_missing(k_mer_canon);
+                            let missing = bf.insert_if_missing(k_mer_canon);
+                            if missing{
+                                //TODO CHECK EXACTLY WHAT ADD DOES
+                                aBF.add(k_mer_canon);
+                            }
+                            /*
+                            en récupérant la valeur de retour de "insert_if_missing"
+                            On pourrait faire l'aggregation ici, a la volée:
+                            if missing
+                                aBF.insert_or_increment(k_mer_canon)
+                             */
                         }
-                    }
-                    counter += 1;
-                    println!("{}",counter);
-                    if counter > 1{
-                        counter = 0;
-                        println!("2 BF filled, time to aggregate");
-                        bloom_filter_array[0].clear();
-                        bloom_filter_array[1].clear();
+                        bf.clear();
                     }
                 }
             }
         }
+        println!("All files have been read...\nWriting output...");
+        //aBF.clear();
+        write(aBF.return_non_zero()).unwrap();
     }
+//    var |-ma-variable-est-un-kebab-|
+//    var ma_variable_est_un_serpent
+//    var maVariableEstUnChameaubebou
 }
 
+fn write(non_zeros: Vec<u16>) -> Result<(), Box<dyn Error>>{
+    let mut results = HashMap::new();
+    for i in 0..non_zeros.len(){
+        let val = results.entry(non_zeros[i]).or_insert(1);
+        *val += 1;
+    }
+    let mut wtr = Writer::from_writer(vec![]);
+    wtr.serialize(results)?;
+    Ok(())
+}
+//bebou
 fn canon(k_mer1: u64, k_mer2:u64) -> u64{
     min(k_mer1, k_mer2)
 }
@@ -102,7 +124,7 @@ fn num2str(mut k_mer: u64) -> String{
             res.push('A');
         }else if nuc == 1{
             res.push('C');
-        }else if nuc == 2{
+        }else if nuc == 2{//bebou
             res.push('T');
         }else if nuc == 3{
             res.push('G');
@@ -126,16 +148,16 @@ where P: AsRef<Path>, {
 }
 #[test]
 fn test_num2str(){
-    let kmer = "CATAATCCAGC";
+    let kmer = "AGCTTTTCATTCTGACTGCAACGGGCAATAT";
     let num = str2num(kmer);
     assert_eq!(num2str(num), kmer);
 }
 #[test]
 fn test_rc_64() {
-    let kmer = "CATAATCCAGC";
+    let kmer = "AGCTTTTCATTCTGACTGCAACGGGCAATAT";
     let revcomp = rev_comp(str2num(kmer));
     let res = num2str(revcomp);
-    assert_eq!(res, "GCTGGATTATG");
+    assert_eq!(res, "ATATTGCCCGTTGCAGTCAGAATGAAAAGCT");
 }
 
 #[test]
