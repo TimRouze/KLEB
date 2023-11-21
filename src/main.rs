@@ -97,8 +97,11 @@ fn write(non_zeros: Vec<u16>) -> Result<(), Box<dyn Error>>{
         let val = results.entry(non_zeros[i]).or_insert(1);
         *val += 1;
     }
-    let mut wtr = Writer::from_writer(vec![]);
-    wtr.serialize(results)?;
+    let mut wtr = Writer::from_writer(io::stdout());
+    for elem in results{
+        wtr.serialize((elem.0, elem.1))?;
+    }
+    
     Ok(())
 }
 //bebou
