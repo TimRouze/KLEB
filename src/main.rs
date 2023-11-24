@@ -33,11 +33,19 @@ struct Args {
     /// Seed used for hash functions
     #[arg(short, long, default_value_t = 101010)]
     seed: u64,
+    /// Modimizer ?
+    #[arg(short = 'M', long)]
+    modimizer: bool,
 }
 fn main() {
     //env::set_var("RUST_BACKTRACE", "full");
     let args = Args::parse();
     let input_fof = args.input.as_str();
+    let modimizer = if args.modimizer {
+        true
+    } else {
+        false
+    };
     /*let output_filename = if let Some(filename) = args.output{
         filename
     }else if let Some((begin, end)) = input_filename.rsplit_once('.'){
@@ -56,6 +64,7 @@ fn main() {
     if let Ok(lines) = read_lines(input_fof){
         for line in lines{
             if let Ok(filename) = line{
+                println!("{}",filename);
                 let mut reader = Reader::from_path(&filename).unwrap();
                 nb_files += 1;
                 while let Some(record) = reader.next(){
@@ -64,10 +73,16 @@ fn main() {
                         let seq = String::from_utf8_lossy(s);
                         for _i in 0..(seq.len()-K as usize){
                             let k_mer = str2num(&seq[_i.._i+K as usize]);
-                            /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
-                            let mut s=String::new();
-                            stdin().read_line(&mut s).expect("Did not enter a correct string"); */
-                            bf.insert(canon(k_mer, rev_comp(k_mer)));
+                            if modimizer{
+                                if k_mer%2 == 0{
+                                    bf.insert(canon(k_mer, rev_comp(k_mer)));
+                                }
+                            }else{
+                                /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
+                                let mut s=String::new();
+                                stdin().read_line(&mut s).expect("Did not enter a correct string"); */
+                                bf.insert(canon(k_mer, rev_comp(k_mer)));
+                            }
                             counter += 1;
                         }
                     }
