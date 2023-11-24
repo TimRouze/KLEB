@@ -83,7 +83,7 @@ impl BloomFilter {
 pub struct AggregatingBloomFilter {
     size: usize,
     n_hashes: usize,
-    counts: Vec<u16>,
+    pub counts: Vec<u16>,
     hash_builders: (RandomState, RandomState),
 }
 
@@ -157,10 +157,13 @@ impl AggregatingBloomFilter {
             .unwrap_or(0)
     }
 
-    pub fn return_non_zero(&self) -> Vec<u16>{
-        let mut non_zeros = Vec::new();
-        self.counts.iter().for_each(|&i| if i != 0{non_zeros.push(i)});
-        non_zeros
+    pub fn agregate(&mut self, bf: &BloomFilter){
+        for _i in 0..(self.size){
+            self.counts[_i] += bf.bv[_i] as u16;
+            /*if bf.bv[_i]{
+                self.counts[_i] += 1;
+            }*/
+        }
     }
 
 }

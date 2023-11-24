@@ -1,14 +1,15 @@
 #![allow(dead_code)]
 
 mod bloom;
+//mod kmer;
+//use kmer::{Base, Kmer, RawKmer};
 use clap::Parser;
-use seq_io::fasta::{Reader};
+use seq_io::fasta::{Reader, Record};
 use std::error::Error;
-use std::fs::{metadata, File};
+use std::fs::File;
 use std::path::Path;
 use std::io::{self, BufRead, stdin};
-use std::cmp::min;
-use std::collections::HashMap;//bebou
+use std::cmp::min;//bebou
 use::csv::Writer;
 use bloom::{BloomFilter, AggregatingBloomFilter};
 
@@ -24,16 +25,17 @@ struct Args {
     ///#[arg(short, long)]
     ///output: Option<String>,
     /// Memory (in MB) allocated to Bloom filters (defaults to input size)
-    #[arg(short, long, default_value_t = 4)]
+    #[arg(short, long, default_value_t = 4000)]
     memory: usize,
     /// Number of hashes used in Bloom filters
-    #[arg(short = 'H', long, default_value_t = 3)]
+    #[arg(short = 'H', long, default_value_t = 1)]
     hashes: usize,
     /// Seed used for hash functions
     #[arg(short, long, default_value_t = 101010)]
     seed: u64,
 }
 fn main() {
+    //env::set_var("RUST_BACKTRACE", "full");
     let args = Args::parse();
     let input_fof = args.input.as_str();
     /*let output_filename = if let Some(filename) = args.output{
@@ -48,62 +50,64 @@ fn main() {
     let size =  args.memory * 1_000_000 / 2;
     let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);                
     let mut aBF: AggregatingBloomFilter = AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed);//bebou
+    let mut counter = 0;
+    let mut nb_files = 0;
+    //let mut kmer = RawKmer::<K, KT>::new();
     if let Ok(lines) = read_lines(input_fof){
         for line in lines{
             if let Ok(filename) = line{
-                //nb_files += 1;
-                println!("{}", filename);
                 let mut reader = Reader::from_path(&filename).unwrap();
+                nb_files += 1;
                 while let Some(record) = reader.next(){
                     let record = record.expect("Error reading record");
                     for s in record.seq_lines(){
                         let seq = String::from_utf8_lossy(s);
-                        for i in 0..(seq.len()-K as usize){
-                            let k_mer = str2num(&seq[i..i+K as usize]);
-                            let revcomp = rev_comp(k_mer);
-                            let k_mer_canon = canon(k_mer, revcomp);
+                        for _i in 0..(seq.len()-K as usize){
+                            let k_mer = str2num(&seq[_i.._i+K as usize]);
                             /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
                             let mut s=String::new();
                             stdin().read_line(&mut s).expect("Did not enter a correct string"); */
-                            let missing = bf.insert_if_missing(k_mer_canon);
-                            if missing{
-                                //TODO CHECK EXACTLY WHAT ADD DOES
-                                aBF.add(k_mer_canon);
-                            }
-                            /*
-                            en récupérant la valeur de retour de "insert_if_missing"
-                            On pourrait faire l'aggregation ici, a la volée:
-                            if missing
-                                aBF.insert_or_increment(k_mer_canon)
-                             */
+                            bf.insert(canon(k_mer, rev_comp(k_mer)));
+                            counter += 1;
                         }
-                        bf.clear();
                     }
+                    aBF.agregate(&bf);
                 }
             }
         }
         println!("All files have been read...\nWriting output...");
         //aBF.clear();
-        write(aBF.return_non_zero()).unwrap();
+        write(aBF, nb_files).unwrap();
+        println!("nb unique k_mers: {}", counter/3);
     }
 //    var |-ma-variable-est-un-kebab-|
 //    var ma_variable_est_un_serpent
 //    var maVariableEstUnChameaubebou
 }
 
-fn write(non_zeros: Vec<u16>) -> Result<(), Box<dyn Error>>{
-    let mut results = HashMap::new();
-    for i in 0..non_zeros.len(){
-        let val = results.entry(non_zeros[i]).or_insert(1);
-        *val += 1;
+
+fn write(aBF: AggregatingBloomFilter, nb_files: u16) -> Result<(), Box<dyn Error>>{
+    let mut result_vec: Vec<u64> = vec![0; nb_files as usize];
+    let mut counter = 0;
+    for elem in aBF.counts{
+        if elem != 0{
+            counter += 1;
+            result_vec[(elem-1) as usize] += 1;
+            /*println!("Elem = {}\nvec[elem] = {}\ncounter = {}", elem-1, result_vec[(elem-1) as usize], counter);
+            let mut s=String::new();
+            stdin().read_line(&mut s).expect("Did not enter a correct string");*/
+        }
     }
-    let mut wtr = Writer::from_writer(io::stdout());
-    for elem in results{
-        wtr.serialize((elem.0, elem.1))?;
-    }
-    
+    println!("I have seen: {} k_mers", counter);
+    let mut wtr = Writer::from_path("out.csv")?;
+    let header: Vec<u16> = (1..(nb_files+1)).collect();
+    wtr.serialize(header)?;
+    wtr.serialize(result_vec)?;
+    wtr.flush()?;
     Ok(())
 }
+
+
 //bebou
 fn canon(k_mer1: u64, k_mer2:u64) -> u64{
     min(k_mer1, k_mer2)
@@ -121,7 +125,7 @@ fn str2num(k_mer: &str) -> u64{
 fn num2str(mut k_mer: u64) -> String{
     let mut res = String::from("");
     let mut nuc: u64;
-    for i in 0..K{
+    for _i in 0..K{
         nuc = k_mer%4;
         if nuc == 0{
             res.push('A');
