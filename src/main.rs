@@ -65,18 +65,18 @@ fn main() {
     };
     */
     //let mut nb_files : u32 = 0;
-    let size =  args.memory * 1_000_000_000 / 2;
+    let size =  args.memory * 1_000_000_000;
     let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);                
     let mut aBF: AggregatingBloomFilter = AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed);//bebou
     let mut counter = 0;
     let mut nb_files = 0;
+    let mut missing = false;
     if let Ok(lines) = read_lines(input_fof){
-
         for line in lines{
             if let Ok(filename) = line{
                 println!("{}",filename);
                 nb_files += 1;
-                let (mut reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
+                let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
                 let mut fa_reader = Reader::new(reader);
                 while let Some(record) = fa_reader.next(){
                     let record = record.expect("Error reading record");
@@ -87,15 +87,20 @@ fn main() {
                                 let k_mer = str2num(&seq[_i.._i+K]);
                                 if modimizer{
                                     if k_mer%2 == 0{
-                                        bf.insert(canon(k_mer, rev_comp(k_mer)));
+                                        missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
                                     }
                                 }else{
                                     /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
                                     let mut s=String::new();
                                     stdin().read_line(&mut s).expect("Did not enter a correct string"); */
-                                    bf.insert(canon(k_mer, rev_comp(k_mer)));
+                                    //bf.insert(canon(k_mer, rev_comp(k_mer)));
+                                    missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
+                                    
                                 }
-                                counter += 1;
+                                if missing{
+                                    counter += 1;
+                                    missing = false;
+                                }
                             }
                         }
                     }
@@ -107,7 +112,7 @@ fn main() {
         println!("All {} files have been read...\nWriting output...", nb_files);
         //aBF.clear();
         write(aBF, nb_files).unwrap();
-        println!("nb unique k_mers: {}", counter/3);
+        println!("nb unique k_mers: {}", counter/nb_files);
     }
 //    var |-ma-variable-est-un-kebab-|
 //    var ma_variable_est_un_serpent
