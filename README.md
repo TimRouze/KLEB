@@ -12,3 +12,6 @@ Outputs a CSV that can be used to generate an UpSet plot of k-mers abundances in
 git clone   https://github.com/TimRouze/UpSet
 cargo r -r fof.txt
 ```
+
+## Acknowledgements
+Many tanks to Igor Martayan from whom I took a lot of code from his repo: github.com/imartayan/BRRR.

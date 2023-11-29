@@ -1,22 +1,27 @@
 #![allow(dead_code)]
 
 mod bloom;
+//mod dashbloom;
 //mod kmer;
-//use kmer::{Base, Kmer, RawKmer};
+//mod reads;
 use clap::Parser;
-use seq_io::fasta::{Reader, Record};
+use seq_io::fasta::{Reader};
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
-use std::io::{self, BufRead, stdin, BufReader};
-use std::io::prelude::*;
+use std::io::{self, BufRead, stdin};
 use std::cmp::min;//bebou
 use::csv::Writer;
-use flate2::read::GzDecoder;
+use niffler;
 use bloom::{BloomFilter, AggregatingBloomFilter};
+//use reads::{BaseRecord, Fasta, ReadProcess};
+//use dashbloom::{BloomFilter, AggregatingBloomFilter};
+//use kmer::{Base, Kmer, RawKmer};
 
 
-const K: u8 = 31;
+
+const K: usize = 31;
+pub type KT = u64;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -26,8 +31,11 @@ struct Args {
     /// Output file (defaults to <input>.csv)
     ///#[arg(short, long)]
     ///output: Option<String>,
-    /// Memory (in MB) allocated to Bloom filters (defaults to input size)
-    #[arg(short, long, default_value_t = 4000)]
+    /// Number of threads (defaults to all available threads)
+    #[arg(short, long)]
+    threads: Option<usize>,
+    /// Memory (in GB) allocated to Bloom filters (defaults to input size)
+    #[arg(short, long, default_value_t = 4)]
     memory: usize,
     /// Number of hashes used in Bloom filters
     #[arg(short = 'H', long, default_value_t = 1)]
@@ -57,71 +65,43 @@ fn main() {
     };
     */
     //let mut nb_files : u32 = 0;
-    let size =  args.memory * 1_000_000 / 2;
+    let size =  args.memory * 1_000_000_000 / 2;
     let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);                
     let mut aBF: AggregatingBloomFilter = AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed);//bebou
     let mut counter = 0;
     let mut nb_files = 0;
-    //let mut kmer = RawKmer::<K, KT>::new();
     if let Ok(lines) = read_lines(input_fof){
+
         for line in lines{
             if let Ok(filename) = line{
                 println!("{}",filename);
                 nb_files += 1;
-                if filename.contains(".gz"){
-                    let file = File::open(filename).unwrap();
-                    let reader = BufReader::new(GzDecoder::new(file));
-                    for line_gz in reader.lines(){
-                        if let Ok(seq) = line_gz{
-                            if !seq.contains(">"){
-                                if seq.len() >= 31{
-                                    for _i in 0..(seq.len()-K as usize){
-                                        let k_mer = str2num(&seq[_i.._i+K as usize]);
-                                        if modimizer{
-                                            if k_mer%2 == 0{
-                                                bf.insert(canon(k_mer, rev_comp(k_mer)));
-                                            }
-                                        }else{
-                                            /*println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(rev_comp(k_mer)), num2str(canon(k_mer, rev_comp(k_mer))));
-                                            let mut s=String::new();
-                                            stdin().read_line(&mut s).expect("Did not enter a correct string");*/
-                                            bf.insert(canon(k_mer, rev_comp(k_mer)));
-                                        }
-                                        counter += 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    aBF.agregate(&bf);
-                    bf.clear();
-                }else{
-                    let mut reader = Reader::from_path(&filename).unwrap();
-                    while let Some(record) = reader.next(){
-                        let record = record.expect("Error reading record");
-                        for s in record.seq_lines(){
-                            let seq = String::from_utf8_lossy(s);
-                            if seq.len() >= 31{
-                                for _i in 0..(seq.len()-K as usize){
-                                    let k_mer = str2num(&seq[_i.._i+K as usize]);
-                                    if modimizer{
-                                        if k_mer%2 == 0{
-                                            bf.insert(canon(k_mer, rev_comp(k_mer)));
-                                        }
-                                    }else{
-                                        /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
-                                        let mut s=String::new();
-                                        stdin().read_line(&mut s).expect("Did not enter a correct string"); */
+                let (mut reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
+                let mut fa_reader = Reader::new(reader);
+                while let Some(record) = fa_reader.next(){
+                    let record = record.expect("Error reading record");
+                    for s in record.seq_lines(){
+                        let seq = String::from_utf8_lossy(s);
+                        if seq.len() >= 31{
+                            for _i in 0..(seq.len()-K){
+                                let k_mer = str2num(&seq[_i.._i+K]);
+                                if modimizer{
+                                    if k_mer%2 == 0{
                                         bf.insert(canon(k_mer, rev_comp(k_mer)));
                                     }
-                                    counter += 1;
+                                }else{
+                                    /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
+                                    let mut s=String::new();
+                                    stdin().read_line(&mut s).expect("Did not enter a correct string"); */
+                                    bf.insert(canon(k_mer, rev_comp(k_mer)));
                                 }
+                                counter += 1;
                             }
                         }
                     }
-                    aBF.agregate(&bf);
-                    bf.clear();
                 }
+                aBF.agregate(&bf);
+                bf.clear();
             }
         }
         println!("All {} files have been read...\nWriting output...", nb_files);
