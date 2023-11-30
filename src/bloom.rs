@@ -80,6 +80,7 @@ impl BloomFilter {
     }
 }
 
+#[derive(Debug)]
 pub struct AggregatingBloomFilter {
     size: usize,
     n_hashes: usize,
