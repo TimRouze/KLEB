@@ -88,6 +88,9 @@ fn main() {
                                 if modimizer{
                                     if k_mer%2 == 0{
                                         missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
+                                        if missing{
+                                            aBF.add(canon(k_mer, rev_comp(k_mer)));
+                                        }
                                     }
                                 }else{
                                     /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
@@ -95,7 +98,9 @@ fn main() {
                                     stdin().read_line(&mut s).expect("Did not enter a correct string"); */
                                     //bf.insert(canon(k_mer, rev_comp(k_mer)));
                                     missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
-                                    
+                                    if missing{
+                                        aBF.add(canon(k_mer, rev_comp(k_mer)));
+                                    }
                                 }
                                 if missing{
                                     counter += 1;
@@ -105,7 +110,6 @@ fn main() {
                         }
                     }
                 }
-                aBF.agregate(&bf);
                 bf.clear();
             }
         }
@@ -123,16 +127,21 @@ fn main() {
 fn write(aBF: AggregatingBloomFilter, nb_files: u16) -> Result<(), Box<dyn Error>>{
     let mut result_vec: Vec<u64> = vec![0; nb_files as usize];
     let mut counter = 0;
+    let mut erroneous_count = 0;
     for elem in aBF.counts{
-        if elem != 0{
+        if elem != 0 && elem <= nb_files{
             counter += 1;
             result_vec[(elem-1) as usize] += 1;
-            /*println!("Elem = {}\nvec[elem] = {}\ncounter = {}", elem-1, result_vec[(elem-1) as usize], counter);
+            /*println!("Elem = {}\nvec[elem] = {}\ncounter = {}", elem, result_vec[(elem) as usize], counter);
             let mut s=String::new();
             stdin().read_line(&mut s).expect("Did not enter a correct string");*/
+        }else if elem > nb_files{
+            erroneous_count += 1;
         }
     }
     println!("I have seen: {} k_mers", counter);
+    println!("I have seen: {} collisions", erroneous_count);
+    println!("Total number of k_mers seen is: {}", (counter+erroneous_count));
     let mut wtr = Writer::from_path("out.csv")?;
     let header: Vec<u16> = (1..(nb_files+1)).collect();
     wtr.serialize(header)?;
