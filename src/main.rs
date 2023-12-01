@@ -67,21 +67,23 @@ fn main() {
     
     if let Ok(lines_temp) = read_lines(input_fof){
         let nb_files = lines_temp.count();
-        println!("{}", nb_files);
-        let mut aBF_mutex = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed)));//bebou
-        let mut hist_mutex = Arc::new(Mutex::new(vec![0; (nb_files+1)]));
+        let mut aBF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed)));//bebou
+        let mut aBF_mutex_2 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed)));//bebou
+        let mut hist_mutex = Arc::new(Mutex::new(vec![0; nb_files+1]));
         if let Ok(lines) = read_lines(input_fof){
             let mut threads = vec![];
             for line in lines{
                 println!("{:?}",line);
-                let aBF_mutex_clone = Arc::clone(&aBF_mutex);
+                let aBF_mutex_clone_1 = Arc::clone(&aBF_mutex_1);
+                let aBF_mutex_clone_2 = Arc::clone(&aBF_mutex_2);
                 let hist_mutex_clone = Arc::clone(&hist_mutex);
                 threads.push(thread::spawn(move|| {
                     if let Ok(filename) = line{
-                        let mut aBF_mut = aBF_mutex_clone.lock().unwrap();
+                        let mut aBF_mut_1 = aBF_mutex_clone_1.lock().unwrap();
+                        let mut aBF_mut_2 = aBF_mutex_clone_2.lock().unwrap();
                         let mut hist_mut = hist_mutex_clone.lock().unwrap();
                         let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);
-                        handle_fasta(filename, &mut aBF_mut, &mut bf, modimizer, &mut hist_mut);
+                        handle_fasta(filename, &mut aBF_mut_1, &mut aBF_mut_2, &mut bf, modimizer, &mut hist_mut);
                     }
                 }));
             }
@@ -100,7 +102,7 @@ fn main() {
 //    var maVariableEstUnChameaubebou
 }
 
-fn handle_fasta(filename: String, aBF: &mut AggregatingBloomFilter, bf: &mut BloomFilter, modimizer: bool, hist: &mut Vec<u64>){
+fn handle_fasta(filename: String, aBF_1: &mut AggregatingBloomFilter, aBF_2: &mut AggregatingBloomFilter, bf: &mut BloomFilter, modimizer: bool, hist: &mut Vec<u64>){
     let mut missing = false;
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
     let mut fa_reader = Reader::new(reader);
@@ -122,10 +124,12 @@ fn handle_fasta(filename: String, aBF: &mut AggregatingBloomFilter, bf: &mut Blo
                         missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
                     }
                     if missing{
-                        let count = aBF.add_and_count(canon(k_mer, rev_comp(k_mer)));
-                        if count < hist.len() as u16{
-                            hist[count as usize] += 1;
-                            hist[(count-1) as usize] -= 1;
+                        let count_1 = aBF_1.add_and_count(canon(k_mer, rev_comp(k_mer)));
+                        let count_2 = aBF_2.add_and_count(canon(k_mer, rev_comp(k_mer)));
+                        let min_count = min(count_1, count_2);
+                        if min_count < hist.len() as u16{
+                            hist[min_count as usize] += 1;
+                            hist[(min_count-1) as usize] -= 1;
                         }
                         missing = false;
                     }
