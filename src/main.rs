@@ -3,6 +3,7 @@
 mod bloom;
 use clap::Parser;
 use seq_io::fasta::{Reader};
+use std::os::linux::net::SocketAddrExt;
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::error::Error;
@@ -63,39 +64,43 @@ fn main() {
         input_filename.to_owned() + ".csv"
     };
     */
-    let size =  args.memory * 1_000_000_000 / 2;               
-    let mut aBF_mutex = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed)));//bebou
-    let mut nb_files = 0;
-    if let Ok(lines) = read_lines(input_fof){
-        
-        let mut threads = vec![];
-        for line in lines{
-            println!("{:?}",line);
-            nb_files += 1;
-            let aBF_mutex_clone = Arc::clone(&aBF_mutex);
-            threads.push(thread::spawn(move|| {
-                if let Ok(filename) = line{
-                    let mut aBF_mut = aBF_mutex_clone.lock().unwrap();
-                    let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);
-                    handle_fasta(filename, &mut aBF_mut, &mut bf, modimizer);
-                }
-            }));
+    let size =  args.memory * 1_000_000_000 / 2;
+    if let Ok(lines_temp) = read_lines(input_fof){
+        let nb_files = lines_temp.count();
+        println!("{}", nb_files);
+        let mut aBF_mutex = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed)));//bebou
+        let mut hist_mutex = Arc::new(Mutex::new(vec![0; (nb_files+1)]));
+        if let Ok(lines) = read_lines(input_fof){
+            let mut threads = vec![];
+            for line in lines{
+                println!("{:?}",line);
+                let aBF_mutex_clone = Arc::clone(&aBF_mutex);
+                let hist_mutex_clone = Arc::clone(&hist_mutex);
+                threads.push(thread::spawn(move|| {
+                    if let Ok(filename) = line{
+                        let mut aBF_mut = aBF_mutex_clone.lock().unwrap();
+                        let mut hist_mut = hist_mutex_clone.lock().unwrap();
+                        let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);
+                        handle_fasta(filename, &mut aBF_mut, &mut bf, modimizer, &mut hist_mut);
+                    }
+                }));
+            }
+            for handle in threads {
+                let _ = handle.join();
+            }
+            println!("All {} files have been read...\nWriting output...", nb_files);
+            //aBF.clear();
+            let hist = Arc::try_unwrap(hist_mutex).unwrap();
+            write_output(hist.into_inner().unwrap(), nb_files).unwrap();
+            
         }
-        for handle in threads {
-            let _ = handle.join();
-        }
-        println!("All {} files have been read...\nWriting output...", nb_files);
-        //aBF.clear();
-        let aBF = Arc::try_unwrap(aBF_mutex).unwrap();
-        write_output(aBF.into_inner().unwrap(), nb_files).unwrap();
-        
     }
 //    var |-ma-variable-est-un-kebab-|
 //    var ma_variable_est_un_serpent
 //    var maVariableEstUnChameaubebou
 }
 
-fn handle_fasta(filename: String, aBF: &mut AggregatingBloomFilter, bf: &mut BloomFilter, modimizer: bool){
+fn handle_fasta(filename: String, aBF: &mut AggregatingBloomFilter, bf: &mut BloomFilter, modimizer: bool, hist: &mut Vec<u16>){
     let mut missing = false;
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
     let mut fa_reader = Reader::new(reader);
@@ -117,7 +122,11 @@ fn handle_fasta(filename: String, aBF: &mut AggregatingBloomFilter, bf: &mut Blo
                         missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
                     }
                     if missing{
-                        aBF.add(canon(k_mer, rev_comp(k_mer)));
+                        let count = aBF.add_and_count(canon(k_mer, rev_comp(k_mer)));
+                        if count < hist.len() as u16{
+                            hist[count as usize] += 1;
+                            hist[(count-1) as usize] -= 1;
+                        }
                         missing = false;
                     }
                 }
@@ -126,8 +135,8 @@ fn handle_fasta(filename: String, aBF: &mut AggregatingBloomFilter, bf: &mut Blo
     }
 }
 
-fn write_output(aBF: AggregatingBloomFilter, nb_files: u16) -> Result<(), Box<dyn Error>>{
-    let mut result_vec: Vec<u64> = vec![0; nb_files as usize];
+fn write_output(hist: Vec<u16>, nb_files: usize) -> Result<(), Box<dyn Error>>{
+    /*let mut result_vec: Vec<u64> = vec![0; nb_files as usize];
     let mut counter = 0;
     let mut erroneous_count = 0;
     for elem in aBF.counts{
@@ -143,11 +152,11 @@ fn write_output(aBF: AggregatingBloomFilter, nb_files: u16) -> Result<(), Box<dy
     }
     println!("I have seen: {} k_mers", counter);
     println!("I have seen: {} collisions", erroneous_count);
-    println!("Total number of k_mers seen is: {}", (counter+erroneous_count));
+    println!("Total number of k_mers seen is: {}", (counter+erroneous_count));*/
     let mut wtr = Writer::from_path("out.csv")?;
-    let header: Vec<u16> = (1..(nb_files+1)).collect();
+    let header: Vec<u16> = (1..(nb_files+1) as u16).collect();
     wtr.serialize(header)?;
-    wtr.serialize(result_vec)?;
+    wtr.serialize(&hist[1..(nb_files+1)])?;
     wtr.flush()?;
     Ok(())
 }
