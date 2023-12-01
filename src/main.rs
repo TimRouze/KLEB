@@ -3,7 +3,6 @@
 mod bloom;
 use clap::Parser;
 use seq_io::fasta::{Reader};
-use std::os::linux::net::SocketAddrExt;
 use std::thread;
 use std::sync::{Arc, Mutex};
 use std::error::Error;
@@ -64,7 +63,8 @@ fn main() {
         input_filename.to_owned() + ".csv"
     };
     */
-    let size =  args.memory * 1_000_000_000 / 2;
+    let size =  args.memory * 1_000_000_000;
+    
     if let Ok(lines_temp) = read_lines(input_fof){
         let nb_files = lines_temp.count();
         println!("{}", nb_files);
@@ -100,7 +100,7 @@ fn main() {
 //    var maVariableEstUnChameaubebou
 }
 
-fn handle_fasta(filename: String, aBF: &mut AggregatingBloomFilter, bf: &mut BloomFilter, modimizer: bool, hist: &mut Vec<u16>){
+fn handle_fasta(filename: String, aBF: &mut AggregatingBloomFilter, bf: &mut BloomFilter, modimizer: bool, hist: &mut Vec<u64>){
     let mut missing = false;
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
     let mut fa_reader = Reader::new(reader);
@@ -135,7 +135,7 @@ fn handle_fasta(filename: String, aBF: &mut AggregatingBloomFilter, bf: &mut Blo
     }
 }
 
-fn write_output(hist: Vec<u16>, nb_files: usize) -> Result<(), Box<dyn Error>>{
+fn write_output(hist: Vec<u64>, nb_files: usize) -> Result<(), Box<dyn Error>>{
     /*let mut result_vec: Vec<u64> = vec![0; nb_files as usize];
     let mut counter = 0;
     let mut erroneous_count = 0;
