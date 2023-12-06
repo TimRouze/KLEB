@@ -95,6 +95,7 @@ fn main() {
             
             
         //}
+
     }
 //    var |-ma-variable-est-un-kebab-|
 //    var ma_variable_est_un_serpent
@@ -163,6 +164,7 @@ fn handle_fasta(filename: String, agregated_BF_mutex_1: &Arc<Mutex<AggregatingBl
 }
 
 fn write_output(hist: Vec<u64>, nb_files: usize) -> Result<(), Box<dyn Error>>{
+
     let mut wtr = Writer::from_path("out.csv")?;
     let header: Vec<u16> = (1..(nb_files+1) as u16).collect();
     wtr.serialize(header)?;
