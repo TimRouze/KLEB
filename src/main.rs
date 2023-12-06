@@ -203,3 +203,28 @@ fn test_canon(){
     let k_mer_canon = canon(kmer, revcomp);
     assert_eq!(num2str(k_mer_canon), "ATATTGCCCGTTGCAGTCAGAATGAAAAGCT");
 }
+
+#[test]
+fn test_process_fof_parallel() {
+    // Replace "path/to/your/test_file.txt" with the path to your test file
+    let filename = "../Data/fof_test.txt";
+    let modimizer = false; // Adjust as needed
+    let nb_files = 2; // Adjust as needed
+    let size = 1_000_000_000; // Adjust as needed
+    env::set_var("RAYON_NUM_THREADS", "1");
+    // Run the function under test
+    let result = process_fof_parallel(filename, modimizer, nb_files, size);
+
+    // Assert that the function returns successfully
+    assert!(result.is_ok());
+
+    // Extract the result vector from the mutex
+    let hist_mutex = result.unwrap();
+    let hist = hist_mutex.lock().unwrap();
+
+    // Add additional assertions based on the expected behavior of your function
+    assert_eq!(hist.len(), nb_files + 1);
+    assert_eq!(hist[2], 97);
+    assert_eq!(hist[0], 0);
+    // Add more assertions as needed
+}
