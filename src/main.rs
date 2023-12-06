@@ -2,17 +2,16 @@
 
 mod bloom;
 use clap::Parser;
-use seq_io::fasta::{Reader};
+use seq_io::fasta::Reader;
 use std::sync::{Arc, Mutex};
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
-use std::io::{self, BufRead, stdin};
+use std::io::{self, BufRead};
 use std::cmp::min;//bebou
 use std::env;
 use::csv::Writer;
 use::rayon::prelude::*;
-use niffler;
 use bloom::{BloomFilter, AggregatingBloomFilter};
 
 
@@ -46,69 +45,31 @@ struct Args {
 fn main() {
     let args = Args::parse();
     let input_fof = args.input.as_str();
-    let modimizer = if args.modimizer {
-        true
-    } else {
-        false
-    };
-    /*let output_filename = if let Some(filename) = args.output{
-        filename
-    }else if let Some((begin, end)) = input_filename.rsplit_once('.'){
-        begin.to_owned() + ".csv" + end
-    } else{
-        input_filename.to_owned() + ".csv"
-    };
-    */
     let size =  args.memory * 1_000_000_000;
-    
+
+    env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
     if let Ok(lines_temp) = read_lines(input_fof){
         let nb_files = lines_temp.count();
-        match process_fof_parallel(&input_fof, modimizer, nb_files, size, args.threads) {
+        match process_fof_parallel(input_fof, args.modimizer, nb_files, size) {
             Ok(hist_mutex) => {
                 println!("All {} files have been read...\nWriting output...", nb_files);
                 let hist = Arc::try_unwrap(hist_mutex).expect("Failed to unnwrap Arc").into_inner().expect("Failed to get Mutex");
                 write_output(hist, nb_files).unwrap();
             }
             Err(err) => eprintln!("Error reading or processing file: {}", err),
-        }/*
-        let mut agregated_BF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed)));//bebou
-        let mut agregated_BF_mutex_2 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed)));//bebou
-        let mut hist_mutex = Arc::new(Mutex::new(vec![0; nb_files+1]));
-        if let Ok(lines) = read_lines(input_fof){
-            let mut threads = vec![];
-
-            for line in lines{
-                println!("{:?}",line);
-                let agregated_BF_mutex_clone_1 = Arc::clone(&agregated_BF_mutex_1);
-                let agregated_BF_mutex_clone_2 = Arc::clone(&agregated_BF_mutex_2);
-                let hist_mutex_clone = Arc::clone(&hist_mutex);
-                threads.push(thread::spawn(move|| {
-                    if let Ok(filename) = line{
-                        let mut agregated_BF_mut_1 = agregated_BF_mutex_clone_1.lock().unwrap();
-                        let mut agregated_BF_mut_2 = agregated_BF_mutex_clone_2.lock().unwrap();
-                        let mut hist_mut = hist_mutex_clone.lock().unwrap();
-                        let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);
-                        handle_fasta(filename, &mut agregated_BF_mut_1, &mut agregated_BF_mut_2, &mut bf, modimizer, &mut hist_mut);
-                    }
-                }));
-            }*/
-            
-            
-        //}
-
+        }
     }
 //    var |-ma-variable-est-un-kebab-|
 //    var ma_variable_est_un_serpent
 //    var maVariableEstUnChameaubebou
 }
 
-fn process_fof_parallel(filename: &str, modimizer: bool, nb_files: usize, size: usize, num_threads: usize) -> io::Result<Arc<Mutex<Vec<u64>>>>{
+fn process_fof_parallel(filename: &str, modimizer: bool, nb_files: usize, size: usize) -> io::Result<Arc<Mutex<Vec<u64>>>>{
     let file = File::open(filename)?;
     let reader = io::BufReader::new(file);
-    let agregated_BF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, 1, 42)));//bebou
+    let agregated_BF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, 1, 333)));//bebou
     let agregated_BF_mutex_2 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, 1, 777)));//bebou
     let hist_mutex = Arc::new(Mutex::new(vec![0; nb_files+1]));
-    env::set_var("RAYON_NUM_THREADS", num_threads.to_string());
     // Process lines in parallel using rayon
     reader
         .lines()
@@ -153,7 +114,9 @@ fn handle_fasta(filename: String, agregated_BF_mutex_1: &Arc<Mutex<AggregatingBl
                         let min_count = min(count_1, count_2);
                         if min_count < hist.len() as u16{
                             hist[min_count as usize] += 1;
-                            hist[(min_count-1) as usize] -= 1;
+                            if min_count != 1{
+                                hist[(min_count-1) as usize] -= 1;
+                            }
                         }
                         missing = false;
                     }
@@ -185,7 +148,7 @@ fn str2num(k_mer: &str) -> u64{
         res <<=2;
         res += (character as u64/2)%4;
     }
-    return res;
+    res
 }
 
 fn num2str(mut k_mer: u64) -> String{
@@ -240,4 +203,29 @@ fn test_canon(){
     let revcomp = rev_comp(kmer);
     let k_mer_canon = canon(kmer, revcomp);
     assert_eq!(num2str(k_mer_canon), "ATATTGCCCGTTGCAGTCAGAATGAAAAGCT");
+}
+
+#[test]
+fn test_process_fof_parallel() {
+    // Replace "path/to/your/test_file.txt" with the path to your test file
+    let filename = "../Data/fof_test.txt";
+    let modimizer = false; // Adjust as needed
+    let nb_files = 2; // Adjust as needed
+    let size = 1_000_000_000; // Adjust as needed
+    env::set_var("RAYON_NUM_THREADS", "1");
+    // Run the function under test
+    let result = process_fof_parallel(filename, modimizer, nb_files, size);
+
+    // Assert that the function returns successfully
+    assert!(result.is_ok());
+
+    // Extract the result vector from the mutex
+    let hist_mutex = result.unwrap();
+    let hist = hist_mutex.lock().unwrap();
+
+    // Add additional assertions based on the expected behavior of your function
+    assert_eq!(hist.len(), nb_files + 1);
+    assert_eq!(hist[2], 97);
+    assert_eq!(hist[0], 0);
+    // Add more assertions as needed
 }
