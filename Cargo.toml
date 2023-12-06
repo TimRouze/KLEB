@@ -16,3 +16,4 @@ parking_lot_core = "0.9.8"
 num-traits = "0.2.17"
 rand = { version = "0.8.5", features = ["small_rng"] }
 seq_io = "0.4.0-alpha.0"
+rayon = "1.8.0"
