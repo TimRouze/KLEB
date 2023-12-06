@@ -1,23 +1,19 @@
 #![allow(dead_code)]
 
 mod bloom;
-//mod dashbloom;
-//mod kmer;
-//mod reads;
 use clap::Parser;
 use seq_io::fasta::{Reader};
+use std::sync::{Arc, Mutex};
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
 use std::io::{self, BufRead, stdin};
 use std::cmp::min;//bebou
+use std::env;
 use::csv::Writer;
+use::rayon::prelude::*;
 use niffler;
 use bloom::{BloomFilter, AggregatingBloomFilter};
-//use reads::{BaseRecord, Fasta, ReadProcess};
-//use dashbloom::{BloomFilter, AggregatingBloomFilter};
-//use kmer::{Base, Kmer, RawKmer};
-
 
 
 const K: usize = 31;
@@ -32,9 +28,9 @@ struct Args {
     ///#[arg(short, long)]
     ///output: Option<String>,
     /// Number of threads (defaults to all available threads)
-    #[arg(short, long)]
-    threads: Option<usize>,
-    /// Memory (in GB) allocated to Bloom filters (defaults to input size)
+    #[arg(short, long, default_value_t = 1)]
+    threads: usize,
+    /// Memory (in GB) allocated to Bloom filters (defaults to 4GB)
     #[arg(short, long, default_value_t = 4)]
     memory: usize,
     /// Number of hashes used in Bloom filters
@@ -48,7 +44,6 @@ struct Args {
     modimizer: bool,
 }
 fn main() {
-    //env::set_var("RUST_BACKTRACE", "full");
     let args = Args::parse();
     let input_fof = args.input.as_str();
     let modimizer = if args.modimizer {
@@ -64,88 +59,116 @@ fn main() {
         input_filename.to_owned() + ".csv"
     };
     */
-    //let mut nb_files : u32 = 0;
     let size =  args.memory * 1_000_000_000;
-    let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);                
-    let mut aBF: AggregatingBloomFilter = AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed);//bebou
-    let mut counter = 0;
-    let mut nb_files = 0;
-    let mut missing = false;
-    if let Ok(lines) = read_lines(input_fof){
-        for line in lines{
-            if let Ok(filename) = line{
-                println!("{}",filename);
-                nb_files += 1;
-                let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
-                let mut fa_reader = Reader::new(reader);
-                while let Some(record) = fa_reader.next(){
-                    let record = record.expect("Error reading record");
-                    for s in record.seq_lines(){
-                        let seq = String::from_utf8_lossy(s);
-                        if seq.len() >= 31{
-                            for _i in 0..(seq.len()-K){
-                                let k_mer = str2num(&seq[_i.._i+K]);
-                                if modimizer{
-                                    if k_mer%2 == 0{
-                                        missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
-                                        if missing{
-                                            aBF.add(canon(k_mer, rev_comp(k_mer)));
-                                        }
-                                    }
-                                }else{
-                                    /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
-                                    let mut s=String::new();
-                                    stdin().read_line(&mut s).expect("Did not enter a correct string"); */
-                                    //bf.insert(canon(k_mer, rev_comp(k_mer)));
-                                    missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
-                                    if missing{
-                                        aBF.add(canon(k_mer, rev_comp(k_mer)));
-                                    }
-                                }
-                                if missing{
-                                    counter += 1;
-                                    missing = false;
-                                }
-                            }
-                        }
-                    }
-                }
-                bf.clear();
+    
+    if let Ok(lines_temp) = read_lines(input_fof){
+        let nb_files = lines_temp.count();
+        match process_fof_parallel(&input_fof, modimizer, nb_files, size, args.threads) {
+            Ok(hist_mutex) => {
+                println!("All {} files have been read...\nWriting output...", nb_files);
+                let hist = Arc::try_unwrap(hist_mutex).expect("Failed to unnwrap Arc").into_inner().expect("Failed to get Mutex");
+                write_output(hist, nb_files).unwrap();
             }
-        }
-        println!("All {} files have been read...\nWriting output...", nb_files);
-        //aBF.clear();
-        write(aBF, nb_files).unwrap();
-        println!("nb unique k_mers: {}", counter/nb_files);
+            Err(err) => eprintln!("Error reading or processing file: {}", err),
+        }/*
+        let mut agregated_BF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed)));//bebou
+        let mut agregated_BF_mutex_2 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, args.hashes, args.seed)));//bebou
+        let mut hist_mutex = Arc::new(Mutex::new(vec![0; nb_files+1]));
+        if let Ok(lines) = read_lines(input_fof){
+            let mut threads = vec![];
+
+            for line in lines{
+                println!("{:?}",line);
+                let agregated_BF_mutex_clone_1 = Arc::clone(&agregated_BF_mutex_1);
+                let agregated_BF_mutex_clone_2 = Arc::clone(&agregated_BF_mutex_2);
+                let hist_mutex_clone = Arc::clone(&hist_mutex);
+                threads.push(thread::spawn(move|| {
+                    if let Ok(filename) = line{
+                        let mut agregated_BF_mut_1 = agregated_BF_mutex_clone_1.lock().unwrap();
+                        let mut agregated_BF_mut_2 = agregated_BF_mutex_clone_2.lock().unwrap();
+                        let mut hist_mut = hist_mutex_clone.lock().unwrap();
+                        let mut bf: BloomFilter = BloomFilter::new_with_seed(size, args.hashes, args.seed);
+                        handle_fasta(filename, &mut agregated_BF_mut_1, &mut agregated_BF_mut_2, &mut bf, modimizer, &mut hist_mut);
+                    }
+                }));
+            }*/
+            
+            
+        //}
+
     }
 //    var |-ma-variable-est-un-kebab-|
 //    var ma_variable_est_un_serpent
 //    var maVariableEstUnChameaubebou
 }
 
+fn process_fof_parallel(filename: &str, modimizer: bool, nb_files: usize, size: usize, num_threads: usize) -> io::Result<Arc<Mutex<Vec<u64>>>>{
+    let file = File::open(filename)?;
+    let reader = io::BufReader::new(file);
+    let agregated_BF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, 1, 42)));//bebou
+    let agregated_BF_mutex_2 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, 1, 777)));//bebou
+    let hist_mutex = Arc::new(Mutex::new(vec![0; nb_files+1]));
+    env::set_var("RAYON_NUM_THREADS", num_threads.to_string());
+    // Process lines in parallel using rayon
+    reader
+        .lines()
+        .par_bridge()
+        .for_each(|line| {
+            let mut bf: BloomFilter = BloomFilter::new_with_seed(size, 1, 1312);
+            let filename = line.unwrap();
+            println!("{}", filename);
+            handle_fasta(filename, &agregated_BF_mutex_1, &agregated_BF_mutex_2, &mut bf, modimizer, &hist_mutex);
+        });
 
-fn write(aBF: AggregatingBloomFilter, nb_files: u16) -> Result<(), Box<dyn Error>>{
-    let mut result_vec: Vec<u64> = vec![0; nb_files as usize];
-    let mut counter = 0;
-    let mut erroneous_count = 0;
-    for elem in aBF.counts{
-        if elem != 0 && elem <= nb_files{
-            counter += 1;
-            result_vec[(elem-1) as usize] += 1;
-            /*println!("Elem = {}\nvec[elem] = {}\ncounter = {}", elem, result_vec[(elem) as usize], counter);
-            let mut s=String::new();
-            stdin().read_line(&mut s).expect("Did not enter a correct string");*/
-        }else if elem > nb_files{
-            erroneous_count += 1;
+    Ok(hist_mutex)
+}
+
+fn handle_fasta(filename: String, agregated_BF_mutex_1: &Arc<Mutex<AggregatingBloomFilter>>, agregated_BF_mutex_2: &Arc<Mutex<AggregatingBloomFilter>>, bf: &mut BloomFilter, modimizer: bool, hist_mutex: &Arc<Mutex<Vec<u64>>>){
+    let mut missing = false;
+    let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
+    let mut fa_reader = Reader::new(reader);
+    while let Some(record) = fa_reader.next(){
+        let record = record.expect("Error reading record");
+        for s in record.seq_lines(){
+            let seq = String::from_utf8_lossy(s);
+            if seq.len() >= 31{
+                for _i in 0..(seq.len()-K){
+                    let k_mer = str2num(&seq[_i.._i+K]);
+                    if modimizer{
+                        if k_mer%2 == 0{
+                            missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
+                        }
+                    }else{
+                        /* println!("kmer: {}\nrevComp: {}\ncanon: {}", num2str(k_mer), num2str(revcomp), num2str(k_mer_canon));
+                        let mut s=String::new();
+                        stdin().read_line(&mut s).expect("Did not enter a correct string"); */
+                        missing = bf.insert_if_missing(canon(k_mer, rev_comp(k_mer)));
+                    }
+                    if missing{
+                        let mut agregated_BF_1 = agregated_BF_mutex_1.lock().unwrap();
+                        let mut agregated_BF_2 = agregated_BF_mutex_2.lock().unwrap();
+                        let count_1 = agregated_BF_1.add_and_count(canon(k_mer, rev_comp(k_mer)));
+                        let count_2 = agregated_BF_2.add_and_count(canon(k_mer, rev_comp(k_mer)));
+                        let mut hist = hist_mutex.lock().unwrap();
+                        let min_count = min(count_1, count_2);
+                        if min_count < hist.len() as u16{
+                            hist[min_count as usize] += 1;
+                            hist[(min_count-1) as usize] -= 1;
+                        }
+                        missing = false;
+                    }
+                }
+            }
         }
     }
-    println!("I have seen: {} k_mers", counter);
-    println!("I have seen: {} collisions", erroneous_count);
-    println!("Total number of k_mers seen is: {}", (counter+erroneous_count));
+}
+
+fn write_output(hist: Vec<u64>, nb_files: usize) -> Result<(), Box<dyn Error>>{
+
     let mut wtr = Writer::from_path("out.csv")?;
-    let header: Vec<u16> = (1..(nb_files+1)).collect();
+    let header: Vec<u16> = (1..(nb_files+1) as u16).collect();
     wtr.serialize(header)?;
-    wtr.serialize(result_vec)?;
+    wtr.serialize(&hist[1..(nb_files+1)])?;
     wtr.flush()?;
     Ok(())
 }

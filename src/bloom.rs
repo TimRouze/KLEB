@@ -80,10 +80,11 @@ impl BloomFilter {
     }
 }
 
+#[derive(Debug)]
 pub struct AggregatingBloomFilter {
     size: usize,
     n_hashes: usize,
-    pub counts: Vec<u16>,
+    counts: Vec<u16>,
     hash_builders: (RandomState, RandomState),
 }
 
