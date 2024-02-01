@@ -23,8 +23,8 @@ struct Args {
     /// Input file (.fasta, .fa)
     input: String,
     /// Output file (defaults to <input>.csv)
-    ///#[arg(short, long)]
-    ///output: Option<String>,
+    #[arg(short, long, default_value_t = String::from("out.csv"))]
+    output: String,
     /// Number of threads (defaults to all available threads)
     #[arg(short, long, default_value_t = 1)]
     threads: usize,
@@ -53,7 +53,7 @@ fn main() {
             Ok(hist_mutex) => {
                 println!("All {} files have been read...\nWriting output...", nb_files);
                 let hist = Arc::try_unwrap(hist_mutex).expect("Failed to unnwrap Arc").into_inner().expect("Failed to get Mutex");
-                write_output(hist, nb_files).unwrap();
+                write_output(hist, nb_files, args.output).unwrap();
             }
             Err(err) => eprintln!("Error reading or processing file: {}", err),
         }
@@ -118,9 +118,9 @@ fn handle_fasta(filename: String, agregated_BF_mutex_1: &Arc<Mutex<AggregatingBl
     }
 }
 
-fn write_output(hist: Vec<u64>, nb_files: usize) -> Result<(), Box<dyn Error>>{
+fn write_output(hist: Vec<u64>, nb_files: usize, output: String) -> Result<(), Box<dyn Error>>{
 
-    let mut wtr = Writer::from_path("out.csv")?;
+    let mut wtr = Writer::from_path(output)?;
     let header: Vec<u16> = (1..(nb_files+1) as u16).collect();
     wtr.serialize(header)?;
     wtr.serialize(&hist[1..(nb_files+1)])?;
