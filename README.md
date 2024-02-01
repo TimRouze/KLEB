@@ -25,6 +25,7 @@ cargo r -r input_fof.txt
 - ```-m``` or ```--memory```: Memory (in Gb) allocated to each Bloom Filters (2 BF per file) (Default = 4Gb)
 - ```-h``` or ```--hashes```: number of Hashes used in Bloom Filters (Default = 1)
 - ```-M``` or ```--modimizer```: Modimizer modulo value (Default = 1)
+- ```-h``` or ```--help```: Display help
 
 ## Acknowledgements
-Many tanks to Igor Martayan who helped me discovering programming in rust and allowed me to re-use lots of code from this repo: [BRRR](github.com/imartayan/BRRR).
+Many tanks to Igor Martayan who helped me discovering programming in rust and allowed me to re-use lots of code from this repo: [BRRR](https://www.github.com/imartayan/BRRR).
