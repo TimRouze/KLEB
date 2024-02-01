@@ -10,8 +10,20 @@ Outputs a CSV that can be used to generate a plot of k-mers abundances by color 
 
 ```sh
 git clone   https://github.com/TimRouze/UpSet
-cargo r -r fof.txt
+cargo build
 ```
 
+## Usage
+
+```sh
+cargo r -r input_fof.txt
+```
+### Options
+
+```-t``` or ```--threads```: number of threads (Default = 1)
+```-m``` or ```--memory```: Memory (in Gb) allocated to each Bloom Filters (2 BF per file) (Default = 4Gb)
+```-h``` or ```--hashes```: number of Hashes used in Bloom Filters (Default = 1)
+```-M``` or ```--modimizer```: Modimizer modulo value (Default = 1)
+
 ## Acknowledgements
-Many tanks to Igor Martayan from whom I took a lot of code from his repo: [BRRR](github.com/imartayan/BRRR).
+Many tanks to Igor Martayan who helped me discovering programming in rust and allowed me to re-use lots of code from this repo: [BRRR](github.com/imartayan/BRRR).
