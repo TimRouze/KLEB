@@ -20,9 +20,9 @@ pub type KT = u64;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Input file (.fasta, .fa)
+    /// Input file of file (.txt)
     input: String,
-    /// Output file (defaults to <input>.csv)
+    /// Output file (defaults to out.csv)
     #[arg(short, long, default_value_t = String::from("out.csv"))]
     output: String,
     /// Number of threads (defaults to all available threads)
@@ -45,11 +45,13 @@ fn main() {
     let args = Args::parse();
     let input_fof = args.input.as_str();
     let size =  args.memory * 1_000_000_000;
+    let hashes = args.hashes;
+    let seed = args.seed as u64;
 
     env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
     if let Ok(lines_temp) = utils::read_lines(input_fof){
         let nb_files = lines_temp.count();
-        match process_fof_parallel(input_fof, args.modimizer, nb_files, size) {
+        match process_fof_parallel(input_fof, args.modimizer, nb_files, size, hashes, seed) {
             Ok(hist_mutex) => {
                 println!("All {} files have been read...\nWriting output...", nb_files);
                 let hist = Arc::try_unwrap(hist_mutex).expect("Failed to unnwrap Arc").into_inner().expect("Failed to get Mutex");
@@ -63,18 +65,18 @@ fn main() {
 //    var maVariableEstUnChameaubebou
 }
 
-fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: usize) -> io::Result<Arc<Mutex<Vec<u64>>>>{
+fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: usize, hashes: usize, seed: u64) -> io::Result<Arc<Mutex<Vec<u64>>>>{
     let file = File::open(filename)?;
     let reader = io::BufReader::new(file);
-    let agregated_BF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, 1, 333)));//bebou
-    let agregated_BF_mutex_2 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, 1, 777)));//bebou
+    let agregated_BF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, hashes, seed+333)));
+    let agregated_BF_mutex_2 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, hashes, seed+777)));
     let hist_mutex = Arc::new(Mutex::new(vec![0; nb_files+1]));
     // Process lines in parallel using rayon
     reader
         .lines()
         .par_bridge()
         .for_each(|line| {
-            let mut bf: BloomFilter = BloomFilter::new_with_seed(size, 1, 1312);
+            let mut bf: BloomFilter = BloomFilter::new_with_seed(size, hashes, seed+1312);
             let filename = line.unwrap();
             println!("{}", filename);
             handle_fasta(filename, &agregated_BF_mutex_1, &agregated_BF_mutex_2, &mut bf, modimizer, &hist_mutex);
