@@ -61,11 +61,10 @@ fn main() {
     let hashes = args.hashes;
     let seed = args.seed as u64;
     let nb_filters = args.filters as u64;
-    let shard_amount = args.threads*4;
     env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
     if let Ok(lines_temp) = utils::read_lines(input_fof){
         let nb_files = lines_temp.count();
-        match process_fof_parallel(input_fof, args.modimizer, nb_files, size, hashes, seed, nb_filters, shard_amount) {
+        match process_fof_parallel(input_fof, args.modimizer, nb_files, size, hashes, seed, nb_filters) {
             Ok(hist_mutex) => {
                 println!("All {} files have been read...\nWriting output...", nb_files);
                 let hist = Arc::try_unwrap(hist_mutex).expect("Failed to unnwrap Arc").into_inner().expect("Failed to get Mutex");
@@ -75,7 +74,7 @@ fn main() {
         }
     }
 }
-fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: usize, hashes: usize, seed: u64, nb_filters: u64, shard_amount: usize) -> io::Result<Arc<Mutex<Vec<u64>>>>{
+fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: usize, hashes: usize, seed: u64, nb_filters: u64) -> io::Result<Arc<Mutex<Vec<u64>>>>{
     let file = File::open(filename)?;
     let reader = io::BufReader::new(file);
     //let mut mutex_vect = Vec::new();
@@ -119,10 +118,12 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
                             }
                             if missing{
                                 //buffer.insert(canon);
-                                let mut curr_vec_1 = agregated_bf_vector.get((canon%shard_amount as u64) as usize).unwrap().lock().unwrap();
-                                let mut curr_vec_2 = agregated_bf_vector_2.get((canon%shard_amount as u64) as usize).unwrap().lock().unwrap();
+                                let mut curr_vec_1 = agregated_bf_vector.get((canon%SHARD_AMOUNT as u64) as usize).unwrap().lock().unwrap();
+                                let mut curr_vec_2 = agregated_bf_vector_2.get((canon%SHARD_AMOUNT as u64) as usize).unwrap().lock().unwrap();
                                 let count_1 = curr_vec_1.add_and_count(canon/SHARD_AMOUNT as u64);
                                 let count_2 = curr_vec_2.add_and_count(canon/SHARD_AMOUNT as u64);
+                                drop(curr_vec_1);
+                                drop(curr_vec_2);
                                 //let count_1 = agregated_bf_1.add_and_count(canon);
                                 //let count_2 = agregated_bf_2.add_and_count(canon);
                                 let min_count = min(count_1, count_2);
@@ -131,6 +132,7 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
                                     hist[min_count as usize] += 1;
                                     if min_count != 1{
                                         hist[(min_count-1) as usize] -= 1;
+                                        drop(hist);
                                     }
                                 }
                                 missing = false;
