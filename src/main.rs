@@ -3,11 +3,12 @@
 mod bloom;
 mod utils;
 mod lock;
+mod parallel_bloom;
 use clap::Parser;
 use rand::random;
 use seq_io::fasta::Reader;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -16,8 +17,11 @@ use std::env;
 use::csv::Writer;
 use::rayon::prelude::*;
 use bloom::{BloomFilter, AggregatingBloomFilter};
+//use parallel_bloom::AggregatingBloomFilter;
 
 const K: usize = 31;
+const BLOCK_SIZE: usize = 1 << (12 - 3);
+const SHARD_AMOUNT: usize = 1024;
 pub type KT = u64;
 
 #[derive(Parser, Debug)]
@@ -78,8 +82,15 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
     /*for i in 1..nb_filters{
         mutex_vect.push(Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, hashes, seed+random::<u64>()))));
     }*/
-    let mut agregated_bf_1 = AggregatingBloomFilter::new_with_seed_and_shard_amount(size, hashes, seed+333, shard_amount);
-    let mut agregated_bf_2 = AggregatingBloomFilter::new_with_seed_and_shard_amount(size, hashes, seed+777, shard_amount);
+    let mut agregated_bf_vector: Vec<Arc<Mutex<AggregatingBloomFilter>>> = Vec::new();
+    let mut agregated_bf_vector_2: Vec<Arc<Mutex<AggregatingBloomFilter>>> = Vec::new();
+    let shard_size = size/SHARD_AMOUNT;
+    for i in 0..SHARD_AMOUNT{
+        agregated_bf_vector.push(Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(shard_size, hashes, seed+random::<u64>()))));
+        agregated_bf_vector_2.push(Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(shard_size, hashes, seed+random::<u64>()))));
+    }
+    //let mut agregated_bf_1 = AggregatingBloomFilter::new_with_seed_and_shard_amount(size, hashes, seed+333, shard_amount);
+    //let mut agregated_bf_2 = AggregatingBloomFilter::new_with_seed_and_shard_amount(size, hashes, seed+777, shard_amount);
     //let agregated_BF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed_and_shard_amount(size, hashes, seed+333, shard_amount)));
     //let agregated_BF_mutex_2 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed_and_shard_amount(size, hashes, seed+777, shard_amount)));
     let hist_mutex = Arc::new(Mutex::new(vec![0; nb_files+1]));
@@ -108,8 +119,12 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
                             }
                             if missing{
                                 //buffer.insert(canon);
-                                let count_1 = agregated_bf_1.add_and_count(canon);
-                                let count_2 = agregated_bf_2.add_and_count(canon);
+                                let mut curr_vec_1 = agregated_bf_vector.get((canon%shard_amount as u64) as usize).unwrap().lock().unwrap();
+                                let mut curr_vec_2 = agregated_bf_vector_2.get((canon%shard_amount as u64) as usize).unwrap().lock().unwrap();
+                                let count_1 = curr_vec_1.add_and_count(canon/SHARD_AMOUNT as u64);
+                                let count_2 = curr_vec_2.add_and_count(canon/SHARD_AMOUNT as u64);
+                                //let count_1 = agregated_bf_1.add_and_count(canon);
+                                //let count_2 = agregated_bf_2.add_and_count(canon);
                                 let min_count = min(count_1, count_2);
                                 let mut hist = hist_mutex.lock().unwrap();
                                 if min_count < hist.len() as u16{
@@ -172,7 +187,7 @@ fn handle_fasta(filename: String, /*mutex_vec: Vec<Arc<Mutex<AggregatingBloomFil
                         /*for mutex in mutex_vec{
 
                         }*/
-                        let mut hist = hist_mutex.lock().unwrap();
+                        /*let mut hist = hist_mutex.lock().unwrap();
                         buffer.iter().for_each(|kmer|{
                             let count_1 = agregated_BF_1.add_and_count(kmer);
                             let count_2 = agregated_BF_2.add_and_count(kmer);
@@ -183,7 +198,7 @@ fn handle_fasta(filename: String, /*mutex_vec: Vec<Arc<Mutex<AggregatingBloomFil
                                     hist[(min_count-1) as usize] -= 1;
                                 }
                             }
-                        });
+                        });*/
                         buffer.clear();
                     }
                 }
