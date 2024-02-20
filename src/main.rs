@@ -52,7 +52,7 @@ struct Args {
     filters: u64,
 }
 //TODO OPTION NB ABF.
-//TODO: mutex array e.g. 128 mutex avec taille bf divisé en 128 parties 1 mutex par partie
+//TODO: IMPROVE SEQUENCE READING
 // Array de BF 
 fn main() {
     let args = Args::parse();
@@ -67,12 +67,6 @@ fn main() {
         match process_fof_parallel(input_fof, args.modimizer, nb_files, size, hashes, seed, nb_filters) {
             Ok(hist_mutex) => {
                 println!("All {} files have been read...\nWriting output...", nb_files);
-                /* let mut hist = vec![0; nb_files+1];
-                for i in 0..nb_files+1{
-                    println!("{i}");
-                    //println!("{}", hist_mutex.get(i).unwrap().lock().unwrap());
-                    hist[i] = Arc::try_unwrap(hist_mutex.get(i).unwrap().clone()).expect("Failed to unnwrap Arc").into_inner().expect("Failed to get Mutex");
-                } */
                 write_output(hist_mutex, nb_files, args.output).unwrap();
             }
             Err(err) => eprintln!("Error reading or processing file: {}", err),
@@ -97,7 +91,6 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
     for _ in 0..nb_files+1{
         hist_mutex_vector.push(Arc::new(Mutex::new(0)));
     }
-    // Process lines in parallel using rayon
     reader
         .lines()
         .par_bridge()
@@ -105,48 +98,6 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
             let mut bf: BloomFilter = BloomFilter::new_with_seed(size, hashes, seed+1312);
             let filename = line.unwrap();
             println!("{}", filename);
-            /*let mut missing = false;
-            //let mut buffer = HashSet::new();
-            let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
-            let mut fa_reader = Reader::new(reader);
-            while let Some(record) = fa_reader.next(){
-                let record = record.expect("Error reading record");
-                for s in record.seq_lines(){
-                    let seq = String::from_utf8_lossy(s);
-                    if seq.len() >= 31{
-                        for _i in 0..(seq.len()-K){
-                            let k_mer = utils::str2num(&seq[_i.._i+K]);
-                            let canon = utils::canon(k_mer, utils::rev_comp(k_mer));
-                            if k_mer%modimizer == 0{
-                                missing = bf.insert_if_missing(canon);
-                            }
-                            if missing{
-                                //buffer.insert(canon);
-                                let mut curr_vec_1 = agregated_bf_vector.get((canon%SHARD_AMOUNT as u64) as usize).unwrap().lock().unwrap();
-                                let mut curr_vec_2 = agregated_bf_vector_2.get((canon%SHARD_AMOUNT as u64) as usize).unwrap().lock().unwrap();
-                                let count_1 = curr_vec_1.add_and_count(canon/SHARD_AMOUNT as u64);
-                                let count_2 = curr_vec_2.add_and_count(canon/SHARD_AMOUNT as u64);
-                                drop(curr_vec_1);
-                                drop(curr_vec_2);
-                                //let count_1 = agregated_bf_1.add_and_count(canon);
-                                //let count_2 = agregated_bf_2.add_and_count(canon);
-                                let min_count = min(count_1, count_2);
-                                if min_count < hist_mutex_vector.len() as u16{
-                                    let mut curr_counter = hist_mutex_vector.get(min_count as usize).unwrap().lock().unwrap();
-                                    *curr_counter += 1;
-                                    drop(curr_counter);
-                                    if min_count != 1{
-                                        let mut prev_counter = hist_mutex_vector.get((min_count-1) as  usize).unwrap().lock().unwrap();
-                                        *prev_counter -= 1;
-                                        drop(prev_counter);
-                                    }
-                                }
-                                missing = false;
-                            }
-                        }
-                    }
-                }
-            }*/
             handle_fasta(filename, agregated_bf_vector, agregated_bf_vector_2, &mut bf, modimizer, &hist_mutex);
         });
     Ok(hist_mutex_vector)
@@ -154,7 +105,6 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
 
 fn handle_fasta(filename: String, agregated_bf_vector: Vec<Arc<Mutex<AggregatingBloomFilter>>>, agregated_bf_vector_2: Vec<Arc<Mutex<AggregatingBloomFilter>>>, bf: &mut BloomFilter, modimizer: u64, hist_mutex: &Vec<Arc<Mutex<u64>>>){
     let mut missing = false;
-    //let mut buffer = HashSet::new();
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
     let mut fa_reader = Reader::new(reader);
     while let Some(record) = fa_reader.next(){
@@ -169,15 +119,12 @@ fn handle_fasta(filename: String, agregated_bf_vector: Vec<Arc<Mutex<Aggregating
                         missing = bf.insert_if_missing(canon);
                     }
                     if missing{
-                        //buffer.insert(canon);
                         let mut curr_vec_1 = agregated_bf_vector.get((canon%SHARD_AMOUNT as u64) as usize).unwrap().lock().unwrap();
                         let mut curr_vec_2 = agregated_bf_vector_2.get((canon%SHARD_AMOUNT as u64) as usize).unwrap().lock().unwrap();
                         let count_1 = curr_vec_1.add_and_count(canon/SHARD_AMOUNT as u64);
                         let count_2 = curr_vec_2.add_and_count(canon/SHARD_AMOUNT as u64);
                         drop(curr_vec_1);
                         drop(curr_vec_2);
-                        //let count_1 = agregated_bf_1.add_and_count(canon);
-                        //let count_2 = agregated_bf_2.add_and_count(canon);
                         let min_count = min(count_1, count_2);
                         if min_count < hist_mutex_vector.len() as u16{
                             let mut curr_counter = hist_mutex_vector.get(min_count as usize).unwrap().lock().unwrap();
