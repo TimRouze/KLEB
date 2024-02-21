@@ -2,10 +2,15 @@
 
 mod bloom;
 mod utils;
+mod kmer;
+mod lock;
+mod parallel_bloom;
 use clap::Parser;
+use rand::random;
 use seq_io::fasta::Reader;
+use seq_io::BaseRecord;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -14,8 +19,15 @@ use std::env;
 use::csv::Writer;
 use::rayon::prelude::*;
 use bloom::{BloomFilter, AggregatingBloomFilter};
+use kmer::{Kmer, RawKmer, Base};
+
+use crate::utils::num2str;
+//use parallel_bloom::AggregatingBloomFilter;
 
 const K: usize = 31;
+const BLOCK_SIZE: usize = 1 << (12 - 3);
+const SHARD_AMOUNT: usize = 1024;
+const KMER_BITS: usize = 2*K;
 pub type KT = u64;
 
 #[derive(Parser, Debug)]
@@ -46,8 +58,7 @@ struct Args {
     filters: u64,
 }
 //TODO OPTION NB ABF.
-//TODO: mutex array e.g. 128 mutex avec taille bf divisé en 128 parties 1 mutex par partie
-// Array de BF 
+//TODO add K as args ?
 fn main() {
     let args = Args::parse();
     let input_fof = args.input.as_str();
@@ -55,27 +66,36 @@ fn main() {
     let hashes = args.hashes;
     let seed = args.seed as u64;
     let nb_filters = args.filters as u64;
-
     env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
     if let Ok(lines_temp) = utils::read_lines(input_fof){
         let nb_files = lines_temp.count();
         match process_fof_parallel(input_fof, args.modimizer, nb_files, size, hashes, seed, nb_filters) {
             Ok(hist_mutex) => {
                 println!("All {} files have been read...\nWriting output...", nb_files);
-                let hist = Arc::try_unwrap(hist_mutex).expect("Failed to unnwrap Arc").into_inner().expect("Failed to get Mutex");
-                write_output(hist, nb_files, args.output).unwrap();
+                write_output(hist_mutex, nb_files, args.output).unwrap();
             }
             Err(err) => eprintln!("Error reading or processing file: {}", err),
         }
     }
 }
-fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: usize, hashes: usize, seed: u64, nb_filters: u64) -> io::Result<Arc<Mutex<Vec<u64>>>>{
+fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: usize, hashes: usize, seed: u64, nb_filters: u64) -> io::Result<Vec<Arc<Mutex<u64>>>>{
     let file = File::open(filename)?;
     let reader = io::BufReader::new(file);
-    let agregated_BF_mutex_1 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, hashes, seed+333)));
-    let agregated_BF_mutex_2 = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, hashes, seed+777)));
-    let hist_mutex = Arc::new(Mutex::new(vec![0; nb_files+1]));
-    // Process lines in parallel using rayon
+    //let mut mutex_vect = Vec::new();
+    /*for i in 1..nb_filters{
+        mutex_vect.push(Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, hashes, seed+random::<u64>()))));
+    }*/
+    let mut agregated_bf_vector: Vec<Arc<Mutex<AggregatingBloomFilter>>> = Vec::new();
+    let mut agregated_bf_vector_2: Vec<Arc<Mutex<AggregatingBloomFilter>>> = Vec::new();
+    let shard_size = size/SHARD_AMOUNT;
+    for _ in 0..SHARD_AMOUNT{
+        agregated_bf_vector.push(Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(shard_size, hashes, seed+random::<u64>()))));
+        agregated_bf_vector_2.push(Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(shard_size, hashes, seed+random::<u64>()))));
+    }
+    let mut hist_mutex_vector: Vec<Arc<Mutex<u64>>> = Vec::new();
+    for _ in 0..nb_files+1{
+        hist_mutex_vector.push(Arc::new(Mutex::new(0)));
+    }
     reader
         .lines()
         .par_bridge()
@@ -83,64 +103,72 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
             let mut bf: BloomFilter = BloomFilter::new_with_seed(size, hashes, seed+1312);
             let filename = line.unwrap();
             println!("{}", filename);
-            handle_fasta(filename, &agregated_BF_mutex_1, &agregated_BF_mutex_2, &mut bf, modimizer, &hist_mutex);
+            handle_fasta(filename, &agregated_bf_vector, &agregated_bf_vector_2, &mut bf, modimizer, &hist_mutex_vector);
         });
-
-    Ok(hist_mutex)
+    Ok(hist_mutex_vector)
 }
 
-fn handle_fasta(filename: String, agregated_BF_mutex_1: &Arc<Mutex<AggregatingBloomFilter>>, agregated_BF_mutex_2: &Arc<Mutex<AggregatingBloomFilter>>, bf: &mut BloomFilter, modimizer: u64, hist_mutex: &Arc<Mutex<Vec<u64>>>){
+fn handle_fasta(filename: String, agregated_bf_vector: &Vec<Arc<Mutex<AggregatingBloomFilter>>>, agregated_bf_vector_2: &Vec<Arc<Mutex<AggregatingBloomFilter>>>, bf: &mut BloomFilter, modimizer: u64, hist_mutex_vector: &Vec<Arc<Mutex<u64>>>){
     let mut missing = false;
     let mut buffer = HashSet::new();
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
     let mut fa_reader = Reader::new(reader);
+    let mut kmer = RawKmer::<K, KT>::new();
     while let Some(record) = fa_reader.next(){
         let record = record.expect("Error reading record");
-        for s in record.seq_lines(){
-            let seq = String::from_utf8_lossy(s);
-            if seq.len() >= 31{
-                for _i in 0..(seq.len()-K){
-                    let k_mer = utils::str2num(&seq[_i.._i+K]);
-                    let canon = utils::canon(k_mer, utils::rev_comp(k_mer));
-                    if k_mer%modimizer == 0{
-                        missing = bf.insert_if_missing(canon);
+        let mut size = 0;
+        for (i, nuc) in record.seq().iter().filter_map(KT::from_nuc).enumerate() {
+            if size < K - 1{
+                kmer = kmer.extend(nuc);
+                size += 1;
+            }else{
+                kmer = kmer.append(nuc);
+                let canon = kmer.canonical().to_int();
+                if canon%modimizer == 0{
+                    missing = bf.insert_if_missing(canon);
+                }
+                if missing{
+                    let mut curr_vec_1 = agregated_bf_vector.get((canon%SHARD_AMOUNT as u64) as usize).unwrap().lock().unwrap();
+                    let mut curr_vec_2 = agregated_bf_vector_2.get((canon%SHARD_AMOUNT as u64) as usize).unwrap().lock().unwrap();
+                    let count_1 = curr_vec_1.add_and_count(canon/SHARD_AMOUNT as u64);
+                    let count_2 = curr_vec_2.add_and_count(canon/SHARD_AMOUNT as u64);
+                    drop(curr_vec_1);
+                    drop(curr_vec_2);
+                    let min_count = min(count_1, count_2);
+                    if min_count < hist_mutex_vector.len() as u16{
+                        let mut curr_counter = hist_mutex_vector.get(min_count as usize).unwrap().lock().unwrap();
+                        *curr_counter += 1;
+                        drop(curr_counter);
+                        if min_count != 1{
+                            let mut prev_counter = hist_mutex_vector.get((min_count-1) as  usize).unwrap().lock().unwrap();
+                            *prev_counter -= 1;
+                            drop(prev_counter);
+                        }
                     }
-                    if missing{
-                        buffer.insert(canon);
-                        missing = false;
-                    }
-                    if buffer.len() >= 1024{
-                        let mut agregated_BF_1 = agregated_BF_mutex_1.lock().unwrap();
-                        let mut agregated_BF_2 = agregated_BF_mutex_2.lock().unwrap();
-                        let mut hist = hist_mutex.lock().unwrap();
-                        buffer.iter().for_each(|kmer|{
-                            let count_1 = agregated_BF_1.add_and_count(kmer);
-                            let count_2 = agregated_BF_2.add_and_count(kmer);
-                            let min_count = min(count_1, count_2);
-                            if min_count < hist.len() as u16{
-                                hist[min_count as usize] += 1;
-                                if min_count != 1{
-                                    hist[(min_count-1) as usize] -= 1;
-                                }
-                            }
-                        });
-                        buffer.clear();
-                    }
+                    missing = false;
                 }
             }
+            
         }
     }
 }
 
-fn write_output(hist: Vec<u64>, nb_files: usize, output: String) -> Result<(), Box<dyn Error>>{
+fn write_output(hist: Vec<Arc<Mutex<u64>>>, nb_files: usize, output: String) -> Result<(), Box<dyn Error>>{
 
     let mut wtr = Writer::from_path(output)?;
     let header: Vec<u16> = (1..(nb_files+1) as u16).collect();
+    let mut hist_to_write = Vec::new();
     wtr.serialize(header)?;
-    wtr.serialize(&hist[1..(nb_files+1)])?;
+    for i in 0..nb_files+1{
+        let val = hist.get(i).unwrap().lock().unwrap();
+        hist_to_write.push(val.clone());
+        drop(val);
+    }
+    wtr.serialize(&hist_to_write[1..nb_files+1])?;
     wtr.flush()?;
     Ok(())
 }
+
 
 #[test]
 fn test_process_fof_parallel() {
@@ -149,9 +177,13 @@ fn test_process_fof_parallel() {
     let modimizer = 1; // Adjust as needed
     let nb_files = 2; // Adjust as needed
     let size = 1_000_000_000; // Adjust as needed
+    let hashes = 1; // Adjust as needed
+    let seed = 1515; // Adjust as needed
+    let nb_filters = 2; // Adjust as needed
+    let shard_amount = 4; // Adjust as needed
     env::set_var("RAYON_NUM_THREADS", "1");
     // Run the function under test
-    let result = process_fof_parallel(filename, modimizer, nb_files, size);
+    let result = process_fof_parallel(filename, modimizer, nb_files, size, hashes, seed, nb_filters, shard_amount);
 
     // Assert that the function returns successfully
     assert!(result.is_ok());
