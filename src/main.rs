@@ -110,6 +110,7 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
 
 fn handle_fasta(filename: String, agregated_bf_vector: &Vec<Arc<Mutex<AggregatingBloomFilter>>>, agregated_bf_vector_2: &Vec<Arc<Mutex<AggregatingBloomFilter>>>, bf: &mut BloomFilter, modimizer: u64, hist_mutex_vector: &Vec<Arc<Mutex<u64>>>){
     let mut missing = false;
+    let mut buffer = HashSet::new();
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
     let mut fa_reader = Reader::new(reader);
     let mut kmer = RawKmer::<K, KT>::new();
