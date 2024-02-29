@@ -7,7 +7,8 @@ edition = "2021"
 
 [dependencies]
 ahash = "0.8.6"
-bit-vec = "0.6.3"
+#bit-vec = "0.6.3"
+bit-vec = { path = "../bit-vec" }
 clap = { version = "4.4.7", features = ["derive"] }
 csv = "1.3.0"
 lock_api = "0.4.10"
@@ -17,3 +18,7 @@ num-traits = "0.2.17"
 rand = { version = "0.8.5", features = ["small_rng"] }
 seq_io = "0.4.0-alpha.0"
 rayon = "1.8.0"
+flate2 = "1.0.28"
+
+[profile.release]
+opt-level = 3
