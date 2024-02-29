@@ -149,14 +149,22 @@ impl AggregatingBloomFilter {
     }
 
     pub fn add_and_count<T: Hash>(&mut self, x: T) -> u16 {
-        self.indices(x)
-            .iter()
-            .map(|&i| {
-                self.counts[i] = self.counts[i].saturating_add(1);
-                self.counts[i]
-            })
-            .min()
-            .unwrap_or(0)
+        let mut index = self.indices(x);
+        let mut res = 0;
+        if index.len() == 1{
+            self.counts[index[0]] = self.counts[index[0]].saturating_add(1);
+            res = self.counts[index[0]];
+        }else{
+            res = index
+                .iter()
+                .map(|&i| {
+                    self.counts[i] = self.counts[i].saturating_add(1);
+                    self.counts[i]
+                })
+                .min()
+                .unwrap_or(0);
+        }
+        res
     }
 
     pub fn agregate(&mut self, bf: &BloomFilter){

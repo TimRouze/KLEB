@@ -111,15 +111,13 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
 fn handle_fasta(filename: String, agregated_bf_vector: &Vec<Arc<Mutex<AggregatingBloomFilter>>>, agregated_bf_vector_2: &Vec<Arc<Mutex<AggregatingBloomFilter>>>, bf: &mut BloomFilter, modimizer: u64, hist_mutex_vector: &Vec<Arc<Mutex<u64>>>){
     let mut missing = false;
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
-    let mut fa_reader = Reader::new(reader);
     let mut kmer = RawKmer::<K, KT>::new();
+    let mut fa_reader = Reader::new(reader);
     while let Some(record) = fa_reader.next(){
         let record = record.expect("Error reading record");
-        let mut size = 0;
         for (i, nuc) in record.seq().iter().filter_map(KT::from_nuc).enumerate() {
-            if size < K - 1{
+            if i < K - 1{
                 kmer = kmer.extend(nuc);
-                size += 1;
             }else{
                 kmer = kmer.append(nuc);
                 let canon = kmer.canonical().to_int();
@@ -138,10 +136,12 @@ fn handle_fasta(filename: String, agregated_bf_vector: &Vec<Arc<Mutex<Aggregatin
                         let mut curr_counter = hist_mutex_vector.get(min_count as usize).unwrap().lock().unwrap();
                         *curr_counter += 1;
                         drop(curr_counter);
-                        if min_count != 1{
+                        if min_count >= 1{
                             let mut prev_counter = hist_mutex_vector.get((min_count-1) as  usize).unwrap().lock().unwrap();
-                            *prev_counter -= 1;
-                            drop(prev_counter);
+                            if *prev_counter > 1{
+                                *prev_counter -= 1;
+                                drop(prev_counter);
+                            }
                         }
                     }
                     missing = false;
@@ -167,7 +167,6 @@ fn write_output(hist: Vec<Arc<Mutex<u64>>>, nb_files: usize, output: String) -> 
     wtr.flush()?;
     Ok(())
 }
-
 
 #[test]
 fn test_process_fof_parallel() {
