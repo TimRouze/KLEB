@@ -22,7 +22,7 @@ cargo r -r input_fof.txt
 
 - ```-o``` or ```--output```: Output file (Default = Out.csv) 
 - ```-t``` or ```--threads```: number of threads (Default = 1)
-- ```-m``` or ```--memory```: Memory (in Gb) allocated to each Bloom Filters (2 BF per file) (Default = 4Gb)
+- ```-m``` or ```--memory```: Memory (in Gb) allocated to each Bloom Filters (1 BF per file + 2 ABF) (Default = 4Gb/BF)
 - ```-h``` or ```--hashes```: number of Hashes used in Bloom Filters (Default = 1)
 - ```-M``` or ```--modimizer```: Modimizer modulo value (Default = 1)
 - ```-h``` or ```--help```: Display help

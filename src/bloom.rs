@@ -1,3 +1,4 @@
+use crate::lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ahash::RandomState;
 use bit_vec::BitVec;
 use core::hash::Hash;

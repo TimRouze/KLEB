@@ -107,6 +107,7 @@ fn handle_fasta(filename: String, agregated_bf_vector: &Vec<Arc<Mutex<Aggregatin
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
     let mut kmer = RawKmer::<K, KT>::new();
     let mut fa_reader = Reader::new(reader);
+    let mut kmer = RawKmer::<K, KT>::new();
     while let Some(record) = fa_reader.next(){
         let record = record.expect("Error reading record");
         for (i, nuc) in record.seq().iter().filter_map(KT::from_nuc).enumerate() {
@@ -161,6 +162,7 @@ fn write_output(hist: Vec<Arc<Mutex<u64>>>, nb_files: usize, output: String) -> 
     wtr.flush()?;
     Ok(())
 }
+
 
 #[test]
 fn test_process_fof_parallel() {
