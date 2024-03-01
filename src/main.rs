@@ -9,8 +9,7 @@ use clap::Parser;
 use rand::random;
 use seq_io::fasta::Reader;
 use seq_io::BaseRecord;
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -21,7 +20,6 @@ use::rayon::prelude::*;
 use bloom::{BloomFilter, AggregatingBloomFilter};
 use kmer::{Kmer, RawKmer, Base};
 
-use crate::utils::num2str;
 //use parallel_bloom::AggregatingBloomFilter;
 
 const K: usize = 31;
@@ -53,9 +51,9 @@ struct Args {
     /// Modimizer ?
     #[arg(short = 'M', long, default_value_t = 1)]
     modimizer: u64,
-    /// Number of Agregated Bloom Filter
+    /*/// Number of Agregated Bloom Filter
     #[arg(short, long, default_value_t = 2)]
-    filters: u64,
+    filters: u64,*/
 }
 //TODO OPTION NB ABF.
 //TODO add K as args ?
@@ -65,11 +63,11 @@ fn main() {
     let size =  args.memory * 1_000_000_000;
     let hashes = args.hashes;
     let seed = args.seed as u64;
-    let nb_filters = args.filters as u64;
+    //let nb_filters = args.filters as u64;
     env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
     if let Ok(lines_temp) = utils::read_lines(input_fof){
         let nb_files = lines_temp.count();
-        match process_fof_parallel(input_fof, args.modimizer, nb_files, size, hashes, seed, nb_filters) {
+        match process_fof_parallel(input_fof, args.modimizer, nb_files, size, hashes, seed/* , nb_filters*/) {
             Ok(hist_mutex) => {
                 println!("All {} files have been read...\nWriting output...", nb_files);
                 write_output(hist_mutex, nb_files, args.output).unwrap();
@@ -78,13 +76,9 @@ fn main() {
         }
     }
 }
-fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: usize, hashes: usize, seed: u64, nb_filters: u64) -> io::Result<Vec<Arc<Mutex<u64>>>>{
+fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: usize, hashes: usize, seed: u64/*, nb_filters: u64*/) -> io::Result<Vec<Arc<Mutex<u64>>>>{
     let file = File::open(filename)?;
     let reader = io::BufReader::new(file);
-    //let mut mutex_vect = Vec::new();
-    /*for i in 1..nb_filters{
-        mutex_vect.push(Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, hashes, seed+random::<u64>()))));
-    }*/
     let mut agregated_bf_vector: Vec<Arc<Mutex<AggregatingBloomFilter>>> = Vec::new();
     let mut agregated_bf_vector_2: Vec<Arc<Mutex<AggregatingBloomFilter>>> = Vec::new();
     let shard_size = size/SHARD_AMOUNT;
@@ -110,7 +104,6 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
 
 fn handle_fasta(filename: String, agregated_bf_vector: &Vec<Arc<Mutex<AggregatingBloomFilter>>>, agregated_bf_vector_2: &Vec<Arc<Mutex<AggregatingBloomFilter>>>, bf: &mut BloomFilter, modimizer: u64, hist_mutex_vector: &Vec<Arc<Mutex<u64>>>){
     let mut missing = false;
-    let mut buffer = HashSet::new();
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
     let mut kmer = RawKmer::<K, KT>::new();
     let mut fa_reader = Reader::new(reader);
@@ -182,7 +175,7 @@ fn test_process_fof_parallel() {
     let shard_amount = 4; // Adjust as needed
     env::set_var("RAYON_NUM_THREADS", "1");
     // Run the function under test
-    let result = process_fof_parallel(filename, modimizer, nb_files, size, hashes, seed, nb_filters, shard_amount);
+    let result = process_fof_parallel(filename, modimizer, nb_files, size, hashes, seed/*, nb_filters, shard_amount */);
 
     // Assert that the function returns successfully
     assert!(result.is_ok());

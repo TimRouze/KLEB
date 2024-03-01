@@ -1,4 +1,3 @@
-use crate::lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ahash::RandomState;
 use bit_vec::BitVec;
 use core::hash::Hash;
@@ -149,8 +148,8 @@ impl AggregatingBloomFilter {
     }
 
     pub fn add_and_count<T: Hash>(&mut self, x: T) -> u16 {
-        let mut index = self.indices(x);
-        let mut res = 0;
+        let index = self.indices(x);
+        let res;
         if index.len() == 1{
             self.counts[index[0]] = self.counts[index[0]].saturating_add(1);
             res = self.counts[index[0]];
