@@ -15,8 +15,10 @@ df = pd.read_csv(file_path, header=None)
 
 # Extract x and y values from the DataFrame
 x_values = df.iloc[0].values
+#y_values = np.log2(df.iloc[1].values)
 y_values = df.iloc[1].values
-
+print(y_values)
+print(x_values)
 # Create a bar plot
 plt.figure(figsize=(10, 6))
 plt.bar(range(len(x_values)), y_values, color='blue')  # Use range(len(x_values)) as x values
