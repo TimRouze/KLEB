@@ -79,6 +79,10 @@ impl BloomFilter {
     pub fn clear(&mut self){
         self.bv.clear();
     }
+    
+    pub fn get_bv(&mut self) -> BitVec{
+        self.bv.clone()
+    }
 }
 
 #[derive(Debug)]
@@ -169,11 +173,14 @@ impl AggregatingBloomFilter {
 
     pub fn agregate(&mut self, bf: &BloomFilter){
         for _i in 0..(self.size){
-            self.counts[_i] += bf.bv[_i] as u16;
-            /*if bf.bv[_i]{
+            if bf.bv.get(_i).unwrap(){
                 self.counts[_i] += 1;
-            }*/
+            }
         }
+    }
+
+    pub fn get_counts(&mut self) -> Vec<u16>{
+        self.counts.clone()
     }
 
 }
