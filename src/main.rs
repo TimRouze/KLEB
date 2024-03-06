@@ -58,6 +58,7 @@ struct Args {
 }
 //TODO OPTION NB ABF.
 //TODO add K as args ?
+//TODO IMPROVE MULTITHREADING
 fn main() {
     let args = Args::parse();
     let input_fof = args.input.as_str();
@@ -82,7 +83,6 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
     let reader = io::BufReader::new(file);
     let agregated_bf_mutex: Arc<Mutex<AggregatingBloomFilter>> = Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(size, hashes, seed)));
     //let mut agregated_bf_vector_2: Vec<Arc<Mutex<AggregatingBloomFilter>>> = Vec::new();
-    //let mut agregated_bf_1: AggregatingBloomFilter = AggregatingBloomFilter::new_with_seed(size, hashes, seed);
     let shard_size = size/SHARD_AMOUNT;
     /*for _ in 0..SHARD_AMOUNT{
         agregated_bf_vector.push(Arc::new(Mutex::new(AggregatingBloomFilter::new_with_seed(shard_size, hashes, seed+random::<u64>()))));
@@ -100,7 +100,10 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
             let mut bf: BloomFilter = BloomFilter::new_with_seed(size, hashes, seed+1312);
             let filename = line.unwrap();
             println!("{}", filename);
-            handle_fasta(filename/*, &mut agregated_bf_1*/, &agregated_bf_mutex/*, &agregated_bf_vector_2*/, &mut bf, modimizer);//, &hist_mutex_vector);
+            handle_fasta(filename/*, &mut agregated_bf_1, &agregated_bf_mutex, &agregated_bf_vector_2*/, &mut bf, modimizer);//, &hist_mutex_vector);
+            //let mut abf = agregated_bf_mutex.lock().unwrap();
+            //abf.agregate(&bf);
+            agregate(&agregated_bf_mutex, &mut bf, size);
         });
         let mut agregated_bf = Arc::try_unwrap(agregated_bf_mutex).expect("Failed to get Arc").into_inner().expect("Failed to get Mutex");
         agregated_bf.get_counts().iter().for_each(|x|{
@@ -111,7 +114,7 @@ fn process_fof_parallel(filename: &str, modimizer: u64, nb_files: usize, size: u
     Ok(hist_vector)//mutex_vector)
 }
 
-fn handle_fasta(filename: String, agregated_bf_mutex: /*&Vec<*/&Arc<Mutex<AggregatingBloomFilter>>/*>, agregated_bf_vector_2: &Vec<Arc<Mutex<&mut AggregatingBloomFilter>>>*/, bf: &mut BloomFilter, modimizer: u64){//}, hist_mutex_vector: &Vec<Arc<Mutex<u64>>>){
+fn handle_fasta(filename: String/*, agregated_bf_mutex: &Vec<&Arc<Mutex<AggregatingBloomFilter>>>, agregated_bf_vector_2: &Vec<Arc<Mutex<&mut AggregatingBloomFilter>>>*/, bf: &mut BloomFilter, modimizer: u64){//}, hist_mutex_vector: &Vec<Arc<Mutex<u64>>>){
     let mut missing = false;
     let ( reader, _compression) = niffler::get_reader(Box::new(File::open(filename).unwrap())).unwrap();
     let mut kmer = RawKmer::<K, KT>::new();
@@ -159,8 +162,34 @@ fn handle_fasta(filename: String, agregated_bf_mutex: /*&Vec<*/&Arc<Mutex<Aggreg
             
         }
     }
-    let mut agregated_bf= agregated_bf_mutex.lock().unwrap();
-    agregated_bf.agregate(bf);
+}
+
+pub fn agregate(abf_mutex: &Arc<Mutex<AggregatingBloomFilter>>, bf: &mut BloomFilter, size: usize){
+    let mut buffer = Vec::new();
+    let bitvec = bf.get_bv();
+    for _i in 0..size{
+        if bitvec.get(_i).unwrap(){
+            buffer.push(_i);
+            if buffer.len() >= 10000{
+                // println!("hello");
+                let mut abf = abf_mutex.lock().unwrap();
+                buffer.iter().for_each(|elem|{
+                    // println!("wesh");
+                    abf.increment(elem);
+                });
+                drop(abf);
+                buffer.clear();
+                // println!("{}", buffer.len());
+            }
+        }
+    }
+    // if buffer.len() != 0{
+    //     let mut abf = abf_mutex.lock().unwrap();
+    //     buffer.iter().for_each(|elem|{
+    //         abf.get_counts()[*elem] += 1;
+    //     });
+    //     drop(abf);
+    // }
 }
 
 fn write_output(hist: Vec<u64>/*Vec<Arc<Mutex<u64>>>*/, nb_files: usize, output: String) -> Result<(), Box<dyn Error>>{

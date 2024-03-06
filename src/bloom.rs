@@ -87,7 +87,7 @@ impl BloomFilter {
 
 #[derive(Debug)]
 pub struct AggregatingBloomFilter {
-    size: usize,
+    pub size: usize,
     n_hashes: usize,
     counts: Vec<u16>,
     hash_builders: (RandomState, RandomState),
@@ -171,6 +171,9 @@ impl AggregatingBloomFilter {
         res
     }
 
+    pub fn increment(&mut self, i: &usize){
+        self.counts[*i] += 1;
+    }
     pub fn agregate(&mut self, bf: &BloomFilter){
         for _i in 0..(self.size){
             if bf.bv.get(_i).unwrap(){
