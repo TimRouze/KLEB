@@ -41,8 +41,8 @@ struct Args {
     #[arg(short, long, default_value_t = 1)]
     threads: usize,
     /// Memory (in GB) allocated to Bloom filters (defaults to 4GB)
-    #[arg(short, long, default_value_t = 4)]
-    memory: usize,
+    #[arg(short, long, default_value_t = 4.0)]
+    memory: f32,
     /// Number of hashes used in Bloom filters
     #[arg(short = 'H', long, default_value_t =2)]
     hashes: usize,
@@ -58,11 +58,11 @@ struct Args {
 }
 //TODO OPTION NB ABF.
 //TODO add K as args ?
-//TODO IMPROVE MULTITHREADING
+//TODO Dynamic size for uint in counts of abf
 fn main() {
     let args = Args::parse();
     let input_fof = args.input.as_str();
-    let size =  args.memory * 1_000_000_00;
+    let size =  (args.memory * 1_000_000_000.0) as usize;
     let hashes = args.hashes;
     let seed = args.seed as u64;
     //let nb_filters = args.filters as u64;
